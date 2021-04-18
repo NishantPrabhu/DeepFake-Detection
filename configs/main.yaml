@@ -1,0 +1,43 @@
+
+# Deepfake classification config 
+
+epochs: 30
+eval_every: 2
+
+model:
+  name: resnet50
+  pretrained: False
+
+optimizer:
+  name: sgd
+  lr: 0.00005
+  weight_decay: 0.0001
+
+scheduler:
+  name: cosine
+  warmup_epochs: 2
+
+data:
+  train_root: ../track1_data/train
+  test_root: ../track1_data/test
+  val_split: 0.2
+  batch_size: 10
+  transforms:
+    train:
+      horizontal_flip:
+        p: 0.5
+      vertical_flip:
+        p: 0.5
+      rotation:
+        degrees: 10
+      grayscale:
+        p: 0.1
+      tensor:
+      normalize:
+        mean: [0.5263, 0.4291, 0.3776]
+        std: [0.2451, 0.2167, 0.2130]
+    val:
+      tensor:
+      normalize:
+        mean: [0.5263, 0.4291, 0.3776]
+        std: [0.2451, 0.2167, 0.2130]
