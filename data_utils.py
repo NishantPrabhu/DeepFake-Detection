@@ -14,10 +14,12 @@ from torch.utils.data import Dataset, DataLoader
 TRANSFORM_HELPER = {
     'horizontal_flip': T.RandomHorizontalFlip,
     'vertical_flip': T.RandomVerticalFlip,
-    'rotation': T.RandomRotation,
     'grayscale': T.RandomGrayscale,
-    'tensor': T.ToTensor,
-    'normalize': T.Normalize
+    'color_jitter': T.ColorJitter,
+    'rotation': T.RandomRotation,
+    'normalize': T.Normalize,
+    'crop': T.RandomCrop,
+    'tensor': T.ToTensor
 }
 
 

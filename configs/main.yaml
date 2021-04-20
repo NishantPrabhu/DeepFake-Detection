@@ -5,7 +5,7 @@ epochs: 30
 eval_every: 2
 
 model:
-  name: resnet50
+  name: efficientnet
   pretrained: False
 
 optimizer:
@@ -26,8 +26,8 @@ data:
     train:
       horizontal_flip:
         p: 0.5
-      vertical_flip:
-        p: 0.5
+      crop:
+        size: 100
       rotation:
         degrees: 10
       grayscale:

@@ -99,3 +99,17 @@ class Resnet152(nn.Module):
             x = self.base(x)
             x = self.flatten(x)
         return x
+
+
+class EfficientNet(nn.Module):
+
+    def __init__(self, pretrained=False):
+        super().__init__()
+        self.base = torch.hub.load('rwightman/gen-efficientnet-pytorch', 'efficientnet_b3', pretrained=pretrained)
+        self.base.classifier = nn.Linear(in_features=1536, out_features=2, bias=True)
+        self.log_softmax = nn.LogSoftmax(dim=-1)
+
+    def forward(self, x):
+        x = self.base(x)
+        x = self.log_softmax(x)
+        return x

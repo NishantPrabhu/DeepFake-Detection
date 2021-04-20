@@ -21,6 +21,7 @@ NETWORKS = {
     'resnet50': dict(net=networks.Resnet50, dim=2048),
     'resnet101': dict(net=networks.Resnet101, dim=2048),
     'resnet152': dict(net=networks.Resnet152, dim=2048),
+    'efficientnet': dict(net=networks.EfficientNet, dim=1536)
 }
 
 class DeepfakeClassifier:
@@ -163,28 +164,6 @@ class DeepfakeClassifier:
                     self.best_val_loss = val_meter.return_metrics()["loss"]
                     self.save_model()
 
-        print(f"\n\n{common.COLORS['yellow']}[INFO] Finished training! Generating test predictions...{common.COLORS['end']}")
+        print("\n\n")
+        self.logger.record("Finished training! Generating test predictions...", mode='info')
         self.get_test_predictions()
-
-
-class ContrastiveClassifier:
-
-    def __init__(self, args):
-        self.args = args
-        self.config, self.output_dir, self.logger, self.device = common.init_experiment(args)
-
-        # Model, optimizer, scheduler
-        assert self.config['model']['name'] in NETWORKS.keys(), f"Unrecognized model {self.config['model']['name']}"
-        encoder, encoder_dim = NETWORKS[self.config['model']['name']]['net'], NETWORKS[self.config['model']['name']]['dim']
-        
-        self.encoder = encoder(pretrained=self.config['model']['pretrained']).to(self.device)
-        self.proj_head = nn.Linear(in_features=encoder_dim, out_features=self.config['model']['projection_dim']).to(self.device)
-        self.optim = train_utils.get_optimizer(
-            config=self.config['optimizer'], params=list(self.encoder.parameters())+list(self.proj_head.parameters()))
-        self.scheduler, self.warmup_epochs = train_utils.get_scheduler(config=self.config['scheduler'], optimizer=self.optim)
-
-        if self.warmup_epochs > 0:
-            self.warmup_rate = (self.config["optim"]["lr"] - 1e-12) / self.warmup_epochs
-
-        # Data loaders
-        
