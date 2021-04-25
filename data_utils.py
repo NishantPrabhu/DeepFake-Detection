@@ -82,10 +82,10 @@ def get_dataloaders(train_root, test_root, transforms, val_split, batch_size):
     train_paths, train_labels, val_paths, val_labels = [], [], [], []
     for real, fake in zip(train_real, train_fake):
         train_paths.append(real), train_paths.append(fake)
-        train_labels.append(0), train_labels.append(1)
+        train_labels.append(1), train_labels.append(0)
     for real, fake in zip(val_real, val_fake):
         val_paths.append(real), val_paths.append(fake)
-        val_labels.append(0), val_labels.append(1)
+        val_labels.append(1), val_labels.append(0)
     
     train_dset = DeepfakeDataset(paths=train_paths, labels=train_labels, transform=train_transform)
     val_dset = DeepfakeDataset(paths=val_paths, labels=val_labels, transform=val_transform)

@@ -6,9 +6,13 @@ Model definitions
 import os
 import torch 
 import torch.nn as nn  
+from torchvision import models
 import torch.nn.functional as F
+import torch.distributions.beta as beta
 import wandb
 import common
+import losses
+import resnets
 import networks 
 import data_utils
 import train_utils
@@ -17,12 +21,14 @@ import pandas as pd
 import sklearn.metrics as metrics
 
 NETWORKS = {
+    'resnet18': dict(net=models.resnet18, dim=512),
     'resnet34': dict(net=networks.Resnet34, dim=512),
     'resnet50': dict(net=networks.Resnet50, dim=2048),
     'resnet101': dict(net=networks.Resnet101, dim=2048),
     'resnet152': dict(net=networks.Resnet152, dim=2048),
     'efficientnet': dict(net=networks.EfficientNet, dim=1536)
 }
+
 
 class DeepfakeClassifier:
 
@@ -47,9 +53,11 @@ class DeepfakeClassifier:
             transforms = self.config['data']['transforms'], 
             val_split = self.config['data']['val_split'], 
             batch_size = self.config['data']['batch_size'])
+        self.beta_dist = beta.Beta(self.config['data'].get("alpha", 0.3), self.config['data'].get("alpha", 0.3))
+        self.batch_size = self.config['data']['batch_size']
 
         # Logging and model saving
-        self.criterion = nn.NLLLoss()
+        self.criterion = losses.LogLoss()
         self.best_val_loss = np.inf
         self.done_epochs = 0
 
@@ -80,15 +88,28 @@ class DeepfakeClassifier:
             self.scheduler.step()
 
     def get_metrics(self, output, targets):
-        preds = output.argmax(dim=-1).detach().cpu().numpy()
-        targets = targets.detach().cpu().numpy()
+        preds = output.argmax(dim=-1).detach().cpu().numpy()[:self.batch_size]
+        targets = targets.detach().cpu().numpy()[:self.batch_size]
         acc = metrics.accuracy_score(targets, preds)
         f1 = metrics.f1_score(targets, preds, zero_division=0)
         return {"accuracy": acc, "f1": f1}
+
+    def get_mixed_batch(self, img, trg):
+        idx = torch.randperm(img.size(0))
+        img_shuffle, trg_shuffle = img[idx], trg[idx]
+        
+        lbd = self.beta_dist.sample()
+        img_mixed = img * lbd + img_shuffle * (1.0 - lbd)
+        trg_mixed = trg * lbd + trg_shuffle * (1.0 - lbd)
+        
+        img_batch = torch.cat([img, img_mixed], dim=0)
+        trg_batch = torch.cat([trg, trg_mixed], dim=0)
+        return img_batch.to(self.device), trg_batch.to(self.device)
     
     def train_one_step(self, batch):
+        self.model.train()
         img, trg = batch 
-        img, trg = img.to(self.device), trg.to(self.device)
+        img, trg = self.get_mixed_batch(img, trg)
         out = self.model(img)
         loss = self.criterion(out, trg)
         train_metrics = self.get_metrics(out, trg)
@@ -98,6 +119,7 @@ class DeepfakeClassifier:
         return {"loss": loss.item(), **train_metrics}
 
     def validate_one_step(self, batch):
+        self.model.eval()
         img, trg = batch 
         img = img.to(self.device)
         with torch.no_grad():
@@ -106,7 +128,17 @@ class DeepfakeClassifier:
         val_metrics = self.get_metrics(out, trg)
         return {"loss": loss.item(), **val_metrics}
 
-    def get_test_predictions(self):
+    @staticmethod
+    def polarize_predictions(s):
+        if s > 0.65:
+            return 0.95
+        elif s < 0.35:
+            return 0.05
+        else:
+            return s
+
+    def get_test_predictions(self, polarize=True):
+        self.model.eval()
         if self.args["load"] is None:
             self.load_model(self.output_dir)
             
@@ -115,7 +147,34 @@ class DeepfakeClassifier:
             img, ids = batch
             img = img.to(self.device)
             with torch.no_grad():
-                out = F.softmax(self.model.base(img), dim=-1).detach().cpu().numpy()
+                out = self.model(img).detach().cpu().numpy()
+            test_ids.extend(ids.cpu().numpy().tolist())
+            test_preds.extend(out[:, 1].tolist())
+            common.progress_bar(progress=(idx+1)/len(self.test_loader), status="")
+            
+        common.progress_bar(progress=1.0, status="")
+        sub_df = pd.DataFrame({"id": test_ids, "p_real": test_preds})
+        sub_df["id"] = sub_df["id"].astype("int")
+        sub_df["p_real"] = sub_df["p_real"].astype("float").apply(lambda x: min(max(0.05, x), 0.95))     
+        sub_df = sub_df.sort_values(by="id", ascending=True)
+        if polarize:
+            sub_df["p_real"] = sub_df["p_real"].apply(DeepfakeClassifier.polarize_predictions)
+            sub_df.to_csv(os.path.join(self.output_dir, "polarized_test_predictions.csv"), index=False)
+        else:
+            sub_df.to_csv(os.path.join(self.output_dir, "test_predictions.csv"), index=False)
+
+    def custom_test_predictions(self, polarize=False):
+        model = resnets.resnet18(pretrained=False).to(self.device)
+        state = torch.load("./models/resnet-18.pt")
+        model.load_state_dict(state["model_state_dict"])
+        model.eval()
+
+        test_ids, test_preds = [], []
+        for idx, batch in enumerate(self.test_loader):
+            img, ids = batch
+            img = img.to(self.device)
+            with torch.no_grad():
+                out = F.softmax(model(img), dim=1).detach().cpu().numpy()
             test_ids.extend(ids.cpu().numpy().tolist())
             test_preds.extend(out[:, 0].tolist())
             common.progress_bar(progress=(idx+1)/len(self.test_loader), status="")
@@ -125,7 +184,11 @@ class DeepfakeClassifier:
         sub_df["id"] = sub_df["id"].astype("int")
         sub_df["p_real"] = sub_df["p_real"].astype("float").apply(lambda x: min(max(0.05, x), 0.95))     
         sub_df = sub_df.sort_values(by="id", ascending=True)
-        sub_df.to_csv(os.path.join(self.output_dir, "test_predictions.csv"), index=False)
+        if polarize:
+            sub_df["p_real"] = sub_df["p_real"].apply(DeepfakeClassifier.polarize_predictions)
+            sub_df.to_csv(os.path.join(self.output_dir, "polarized_test_predictions.csv"), index=False)
+        else:
+            sub_df.to_csv(os.path.join(self.output_dir, "test_predictions.csv"), index=False)
 
     def train(self):
         for epoch in range(self.config["epochs"] - self.done_epochs):
@@ -139,6 +202,7 @@ class DeepfakeClassifier:
                 common.progress_bar(progress=(idx+1)/len(self.train_loader), status=train_meter.return_msg())
 
             common.progress_bar(progress=1.0, status=train_meter.return_msg())
+            self.logger.write(train_meter.return_msg(), mode='train')
             self.adjust_learning_rate(epoch+1)
             wandb.log({
                 "Train accuracy": train_meter.return_metrics()["accuracy"],
@@ -154,6 +218,7 @@ class DeepfakeClassifier:
                     common.progress_bar(progress=(idx+1)/len(self.val_loader), status=val_meter.return_msg())
 
                 common.progress_bar(progress=1.0, status=val_meter.return_msg())
+                self.logger.write(val_meter.return_msg(), mode='val')
                 wandb.log({
                     "Validation loss": val_meter.return_metrics()["loss"],
                     "Validation accuracy": val_meter.return_metrics()["accuracy"],
@@ -166,4 +231,4 @@ class DeepfakeClassifier:
 
         print("\n\n")
         self.logger.record("Finished training! Generating test predictions...", mode='info')
-        self.get_test_predictions()
+        self.get_test_predictions(self.config.get("polarize_predictions", True))

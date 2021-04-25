@@ -25,3 +25,6 @@ if __name__ == "__main__":
     elif args['task'] == 'test':
         assert args['load'] is not None, "Please load a model for generating test predictions"
         trainer.get_test_predictions()
+
+    elif args['task'] == 'custom_test':
+        trainer.custom_test_predictions()
