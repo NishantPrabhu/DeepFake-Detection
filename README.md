@@ -13,4 +13,4 @@ The code to train the best model was written by Shrisudhan G. To re-train the mo
 python3 main.py --config 'configs/main.yaml' --task 'custom_test'
 ```
 
-Ensure that `resnet-18.pt` is present in `main/models/` before you run the above command.
+Ensure that `train` and `test` folders as provided in the contest are available in a directory with name `track1_data` on the same directory level as `main` before you run the above command.
