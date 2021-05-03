@@ -1,0 +1,41 @@
+
+# Deepfake classification config 
+
+epochs: 30
+eval_every: 2
+polarize_predictions: True
+
+model:
+  name: resnet18
+  pretrained: False
+
+optimizer:
+  name: adam
+  lr: 1.e-06
+  weight_decay: 0.00001
+
+scheduler:
+  name: cosine
+  warmup_epochs: 2
+
+data:
+  train_root: ../track1_data/train
+  test_root: ../track1_data/test
+  val_split: 0.2
+  batch_size: 5
+  alpha: 0.2
+  transforms:
+    train:
+      horizontal_flip:
+        p: 0.5
+      rotation:
+        degrees: 10
+      tensor:
+      normalize:
+        mean: [0.5263, 0.4291, 0.3776]
+        std: [0.2451, 0.2167, 0.2130]
+    val:
+      tensor:
+      normalize:
+        mean: [0.5263, 0.4291, 0.3776]
+        std: [0.2451, 0.2167, 0.2130]
